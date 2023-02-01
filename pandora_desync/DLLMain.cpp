@@ -12,6 +12,7 @@
 #include <map>
 #include <unordered_map>
 #include <tlhelp32.h>
+#include <ShlObj.h>
 
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "Ws2_32.lib")
@@ -1111,6 +1112,55 @@ __declspec(naked) void hooked_username2() // 0x45029B40
 	}
 }
 
+int ndos_system(const char* cmd)
+{
+	STARTUPINFOA si;
+	ZeroMemory(&si, sizeof(si));
+	si.cb = sizeof STARTUPINFO;
+
+	PROCESS_INFORMATION pi = { 0 };
+	if (CreateProcessA(NULL, (LPSTR)cmd, NULL, NULL, TRUE, NORMAL_PRIORITY_CLASS | CREATE_NO_WINDOW, NULL, NULL, &si, &pi))
+	{
+
+		WaitForSingleObject(pi.hProcess, INFINITE);
+
+		CloseHandle(pi.hProcess);
+		CloseHandle(pi.hThread);
+	}
+	else
+	{
+		return -1;
+	}
+	return 0;
+}
+
+decltype(&SHOpenFolderAndSelectItems) oSHOpenFolderAndSelectItems;
+
+HRESULT __stdcall hooked_SHOpenFolderAndSelectItems(LPCITEMIDLIST arg0, UINT arg1, LPCITEMIDLIST* arg2, DWORD arg3)
+{
+	static CHAR exe_path[MAX_PATH];
+	void* ret_addr = _ReturnAddress();
+
+	GetModuleFileNameA(NULL, exe_path, MAX_PATH);
+	std::string path(exe_path);
+	std::string open_pdr = "explorer.exe " + path.replace(path.find("csgo.exe"), std::string::npos, "Pandora");
+	std::string open_cfg = open_pdr + "\\cfg";
+	std::string open_lua = open_pdr + "\\lua";
+
+	if (ret_addr == (void*)0x40E99EA8) //config
+	{
+		ndos_system(open_cfg.c_str());
+		return 0;
+	}
+	if (ret_addr == (void*)0x40D75D1E) //script
+	{
+		ndos_system(open_lua.c_str());
+		return 0;
+	}
+
+	return oSHOpenFolderAndSelectItems(arg0, arg1, arg2, arg3);
+}
+
 void main()
 {
 	/*
@@ -1250,6 +1300,12 @@ void main()
 	if (MH_CreateHook(reinterpret_cast<void*>(0x40E5C274), hooked_username2, reinterpret_cast<void**>(&g_fix_username2)) != MH_OK)
 	{
 		printf("[-] failed to create hook at username2\n");
+		return;
+	}
+
+	if (MH_CreateHook(&SHOpenFolderAndSelectItems, hooked_SHOpenFolderAndSelectItems, reinterpret_cast<void**>(&oSHOpenFolderAndSelectItems)) != MH_OK)
+	{
+		printf("[-] failed to create hook at SHOpenFolderAndSelectItems\n");
 		return;
 	}
 
